@@ -89,3 +89,10 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+
+int
+sys_list_all_processes(void)
+{
+  return list_all_processes();
+}

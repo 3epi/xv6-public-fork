@@ -23,6 +23,9 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
+int list_all_processes(void);
+
+
 
 // ulib.c
 int stat(const char*, struct stat*);

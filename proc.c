@@ -89,6 +89,8 @@ found:
   p->state = EMBRYO;
   p->pid = nextpid++;
 
+  p->syscall_count = 0;
+
   release(&ptable.lock);
 
   // Allocate kernel stack.
@@ -531,4 +533,22 @@ procdump(void)
     }
     cprintf("\n");
   }
+}
+
+
+int
+list_all_processes(void)
+{
+  struct proc *p;
+
+  acquire(&ptable.lock);
+  cprintf("PID\tProcess Name\tSyscall Count\n");
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->state != UNUSED){
+      cprintf("%d\t%s\t%d\n", p->pid, p->name, p->syscall_count);
+    }
+  }
+  release(&ptable.lock);
+
+  return 0;
 }
