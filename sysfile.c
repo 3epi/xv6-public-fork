@@ -442,3 +442,111 @@ sys_pipe(void)
   fd[1] = fd1;
   return 0;
 }
+
+int sys_move_file(void) { //inode stores metadata
+    char *src_addr, *dest_addr;
+    char name[DIRSIZ]; //maximum dir name size
+    struct inode *ip  = 0, *dp = 0, *np = 0; //ip : inode of file being moved
+    //dp : inode of the parent directory of the source file
+    // np : The inode of the destination directory.
+    uint off; //offset
+    struct dirent de; //dir entry
+
+    // get source and destination paths from arguments
+    if (argstr(0, &src_addr) < 0 || argstr(1, &dest_addr) < 0)
+        return -1;
+
+    begin_op();
+
+    // get inode of source file
+    if ((ip = namei(src_addr)) == 0) {
+        end_op();
+        return -1;
+    }
+
+    ilock(ip);
+
+    // Check if the source is a regular file
+    if (ip->type != T_FILE) {
+        iunlockput(ip);
+        end_op();
+        return -1;
+    }
+
+    // increment nlink
+    ip->nlink++; //link count of file (dirs)
+    iupdate(ip);
+    iunlock(ip);
+
+    // get parent directory of the source file
+    if ((dp = nameiparent(src_addr, name)) == 0) {
+        goto bad;
+    }
+
+    ilock(dp);
+
+    //  remove  source dir entry
+    if (dirlookup(dp, name, &off) == 0) {
+        iunlockput(dp);
+        goto bad;
+    }
+
+    memset(&de, 0, sizeof(de));
+    if (writei(dp, (char*)&de, off, sizeof(de)) != sizeof(de))
+        panic("unlink: writei");
+
+    if (ip->type == T_DIR) {
+        dp->nlink--;
+        iupdate(dp);
+    }
+
+    dp->nlink--;
+    iunlock(dp);
+
+    // get inode of the destination directory
+    if ((np = namei(dest_addr)) == 0) {
+        goto bad;
+    }
+
+    ilock(np);
+
+    // check if destination is dir
+    if (np->type != T_DIR) {
+        iunlockput(np);
+        end_op();
+        return -1;
+    }
+
+    // check if file is already in destination
+    if (dirlookup(np, name, &off) != 0) {
+        iunlockput(np);
+        goto bad;
+    }
+
+    // link inode to the new dir
+    if (dirlink(np, name, ip->inum) < 0) {
+        iunlockput(np);
+        goto bad;
+    }
+
+    iunlockput(np);
+
+    // decrement nlink
+    ilock(ip);
+    ip->nlink--;
+    iupdate(ip);
+    iunlockput(ip);
+
+    end_op();
+    return 0;
+
+bad: //cleanup
+    if (ip) {
+        ilock(ip);
+        ip->nlink--;
+        iupdate(ip);
+        iunlockput(ip);
+    }
+    end_op();
+    return -1;
+}

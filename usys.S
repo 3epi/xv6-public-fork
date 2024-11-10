@@ -30,3 +30,5 @@ SYSCALL(sbrk)
 SYSCALL(sleep)
 SYSCALL(uptime)
 SYSCALL(list_all_processes)
+SYSCALL(move_file)
+
