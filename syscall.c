@@ -105,6 +105,9 @@ extern int sys_write(void);
 extern int sys_uptime(void);
 extern int sys_list_all_processes(void);
 extern int sys_move_file(void);
+extern int sys_create_palindrome(void);
+extern int sys_sort_syscalls(void);
+extern int sys_get_most_invoked_syscall(void);
 
 
 static int (*syscalls[])(void) = {
@@ -131,6 +134,9 @@ static int (*syscalls[])(void) = {
 [SYS_close]   sys_close,
 [SYS_list_all_processes] sys_list_all_processes,
 [SYS_move_file]  sys_move_file,
+[SYS_create_palindrome] sys_create_palindrome,
+[SYS_sort_syscalls] sys_sort_syscalls,
+[SYS_get_most_invoked_syscall] sys_get_most_invoked_syscall,
 };
 
 void
@@ -141,8 +147,10 @@ syscall(void)
 
   num = curproc->tf->eax;
   if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
+    if (curproc->syscall_count < 100)
+          curproc->syscalls[curproc->syscall_counter++] = num; 
     curproc->tf->eax = syscalls[num]();
-    // Increment the syscall count
+    // Increment the syscall count for q4
     curproc->syscall_count++;
   } else {
     cprintf("%d %s: unknown sys call %d\n",

@@ -25,7 +25,9 @@ int sleep(int);
 int uptime(void);
 int list_all_processes(void);
 int move_file(const char *src_file, const char *dest_dir);
-
+int create_palindrome(int n);
+int sort_syscalls(int pid);
+int get_most_invoked_syscall(int pid);
 
 
 // ulib.c

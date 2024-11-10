@@ -184,6 +184,9 @@ UPROGS=\
 	_listproc\
 	_getpid\
 	_move_file\
+	_create_palindrome\
+	_sort_syscalls\
+	_get_most_invoked_syscall\
 
 fs.img: mkfs README $(UPROGS)
 	./mkfs fs.img README $(UPROGS)
