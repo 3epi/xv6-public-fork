@@ -34,6 +34,15 @@ struct context {
 
 enum procstate { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+#define SHAREDREGIONS 64 // same as marco in memlayout.h
+
+typedef struct sharedPages {
+  uint key, size;
+  int shmid,perm;
+  void *virtualAddr;
+} sharedPages;
+
+
 // Per-process state
 struct proc {
   uint sz;                     // Size of process memory (bytes)
@@ -49,6 +58,7 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  sharedPages pages[SHAREDREGIONS];
 };
 
 // Process memory is laid out contiguously, low addresses first:

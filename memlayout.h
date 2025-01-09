@@ -13,3 +13,8 @@
 
 #define V2P_WO(x) ((x) - KERNBASE)    // same as V2P, but without casts
 #define P2V_WO(x) ((x) + KERNBASE)    // same as P2V, but without casts
+
+
+// Shared memory macros
+#define HEAPLIMIT 0x7F000000 // 16MB from this limit -> KERNBASE
+#define SHAREDREGIONS 64    // maximum shared regions allowed
