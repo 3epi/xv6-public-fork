@@ -1,67 +1,98 @@
 #include "types.h"
 #include "stat.h"
 #include "user.h"
-#include "ipc.h"
 #include "sharedmemory.h"
-#include "memlayout.h"
-
-#define SHM_KEY 1000
-#define NUM_CHILD_PROCESSES 6
+#include "ipc.h"
+// Simple struct for shared factorial data
+struct shared_data {
+    int current_n;
+    int factorial;
+    int sync_flag;
+};
 
 int main(int argc, char *argv[]) {
-    int shmid = shmget(SHM_KEY, sizeof(int), 0);
-    if (shmid < 0) {
-        shmid = shmget(SHM_KEY, sizeof(int), 06 | IPC_CREAT);
-        if (shmid < 0) {
-            printf(1, "Failed to create shared memory segment\n");
-            exit();
-        }
-        int *ptr = (int *)shmat(shmid, 0, 0);
-        if ((int)ptr < 0) {
-            printf(1, "Failed to attach shared memory segment\n");
-            exit();
-        }
-        *ptr = 0;
-        shmdt(ptr);
-    }
-
-    for (int i = 0; i < NUM_CHILD_PROCESSES; i++) {
-        int pid = fork();
-        if (pid < 0) {
-            printf(1, "Fork failed\n");
-            exit();
-        } else if (pid == 0) {
-            int childShmid = shmget(SHM_KEY, sizeof(int), 0);
-            if (childShmid < 0) {
-                printf(1, "Failed to get shared memory segment\n");
-                exit();
-            }
-            int *childPtr = (int *)shmat(childShmid, 0, 0);
-            if ((int)childPtr < 0) {
-                printf(1, "Failed to attach shared memory segment\n");
-                exit();
-            }
-            *childPtr = *childPtr + 1;
-            shmdt(childPtr);
-            exit();
-        }
-    }
-
-    for (int i = 0; i < NUM_CHILD_PROCESSES; i++) {
-        wait();
-    }
-
-    // Report the amount of memory
-    int *parentPtr = (int *)shmat(shmid, 0, 0);
-    if ((int)parentPtr < 0) {
-        printf(1, "Failed to attach shared memory segment\n");
+    if(argc != 3) {
+        printf(1, "Usage: test_sharedmem <num_processes> <n>\n");
         exit();
     }
-    printf(1, "Total amount of memory: %d\n", *parentPtr);
-    shmdt(parentPtr);
 
-    // Remove shared memory segment
-    shmctl(shmid, IPC_RMID, 0);
+    int num_processes = atoi(argv[1]);
+    int final_n = atoi(argv[2]);
+
+    // Use IPC_CREAT so shmget doesn't fail
+    int shmid = shmget(1234, sizeof(struct shared_data), RW_SHM | IPC_CREAT);
+    if(shmid < 0) {
+        printf(1, "shmget returned: %d\n", shmid);
+        printf(1, "shmget failed\n");
+        exit();
+    }
+
+    // Parent attaches to initialize shared memory
+    struct shared_data *pData = (struct shared_data*)shmat(shmid, 0, 0);
+    if(pData == (void*)-1) {
+        printf(1, "Parent shmat failed\n");
+        exit();
+    }
+
+    // Initialize
+    pData->current_n = 1;
+    pData->factorial = 1;
+    pData->sync_flag = 0;
+
+    // Fork children
+    int pid;
+    int process_id = 0;
+    for(int i=0; i<num_processes; i++){
+        if((pid = fork()) == 0){
+            process_id = i+1;
+            break;
+        }
+    }
+
+    // Child code
+    if(pid == 0){
+        // Each child re-attaches the shared memory
+        struct shared_data *cData = (struct shared_data*)shmat(shmid, 0, 0);
+        if(cData == (void*)-1) {
+            printf(1, "Child %d shmat failed\n", process_id);
+            exit();
+        }
+        printf(1, "Child %d started\n", process_id);
+
+        while(1){
+            // Wait for this child's turn
+            while(cData->sync_flag != process_id)
+                sleep(1);
+
+            // Check completion
+            if(cData->current_n >= final_n){
+                cData->sync_flag = (process_id % num_processes)+1;
+                // Child detaches before exit
+                shmdt(cData);
+                exit();
+            }
+
+            // Calculate next factorial
+            cData->factorial *= (cData->current_n + 1);
+            cData->current_n++;
+            printf(1, "Child %d: factorial(%d)=%d\n", 
+                   process_id, cData->current_n, cData->factorial);
+
+            // Hand off to next child
+            cData->sync_flag = (process_id % num_processes)+1;
+        }
+    }
+    // Parent code
+    else {
+        sleep(5);
+        pData->sync_flag = 1; // Start calculation
+        for(int i=0; i<num_processes; i++){
+            wait();
+        }
+        printf(1, "Final: factorial(%d)=%d\n", final_n, pData->factorial);
+        // Parent detaches
+        shmdt(pData);
+    }
 
     exit();
 }
