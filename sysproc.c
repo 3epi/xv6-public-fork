@@ -92,14 +92,14 @@ sys_uptime(void)
 
 // Shared memory
 
-extern int shmget(uint, uint, int);
-extern int shmdt(void*);
-extern void * shmat(int, void*, int);
-extern int shmctl(int, int, void*);
+extern int get_sharedmem(uint, uint, int);
+extern int close_sharedmem(void*);
+extern void * open_sharedmem(int, void*, int);
+extern int control_sharedmem(int, int, void*);
 
-// system call handler for shmget
+// system call handler for get_sharedmem
 int
-sys_shmget(void)
+sys_get_sharedmem(void)
 {
   int key, size, shmflag;
   // check for valid arguments
@@ -109,22 +109,22 @@ sys_shmget(void)
     return -1;
   if(argint(2, &shmflag) < 0)
     return -1;
-  return shmget((uint)key, (uint)size, shmflag);
+  return get_sharedmem((uint)key, (uint)size, shmflag);
 }
 
-// system call handler for shmdt
-int sys_shmdt(void)
+// system call handler for close_sharedmem
+int sys_close_sharedmem(void)
 {
   int i;
   // check for valid argument
   if(argint(0,&i)<0)
     return 0;
-  return shmdt((void*)i);
+  return close_sharedmem((void*)i);
 }
 
-// system call handler for shmctl
+// system call handler for control_sharedmem
 int
-sys_shmctl(void)
+sys_control_sharedmem(void)
 {
   int shmid, cmd, buf;
   // check for valid arguments
@@ -134,12 +134,12 @@ sys_shmctl(void)
     return -1;
   if(argint(2, &buf) < 0)
     return -1;
-  return shmctl(shmid, cmd, (void*)buf);
+  return control_sharedmem(shmid, cmd, (void*)buf);
 }
 
-// system call handler for shmat
+// system call handler for open_sharedmem
 void*
-sys_shmat(void)
+sys_open_sharedmem(void)
 {
   int shmid, shmflag;
   int i;
@@ -150,5 +150,5 @@ sys_shmat(void)
     return (void*)0;
   if(argint(2, &shmflag) < 0)
     return (void*)0;
-  return shmat(shmid, (void*)i, shmflag);
+  return open_sharedmem(shmid, (void*)i, shmflag);
 }

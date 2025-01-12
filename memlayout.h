@@ -17,4 +17,3 @@
 
 // Shared memory macros
 #define HEAPLIMIT 0x7F000000 // 16MB from this limit -> KERNBASE
-#define SHAREDREGIONS 64    // maximum shared regions allowed

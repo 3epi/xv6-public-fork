@@ -22,7 +22,7 @@
 #define SYS_close  21
 
 // System calls for shared memory
-#define SYS_shmget 22
-#define SYS_shmat  23
-#define SYS_shmdt  24
-#define SYS_shmctl 25
+#define SYS_get_sharedmem 22
+#define SYS_open_sharedmem  23
+#define SYS_close_sharedmem  24
+#define SYS_control_sharedmem 25

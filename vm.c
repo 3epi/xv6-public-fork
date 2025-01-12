@@ -6,7 +6,6 @@
 #include "mmu.h"
 #include "proc.h"
 #include "elf.h"
-#include "sharedmemory.h"
 #include "ipc.h"
 #include "spinlock.h"
 
@@ -392,78 +391,77 @@ copyout(pde_t *pgdir, uint va, void *p, uint len)
 // ### Shared memory ### //
 
 // structure of single shared memory region
+
+struct ipc_perm {
+  uint __key; // key supplied to get_sharedmem
+  int mode; // READ - WRITE permissions. 04 / 06
+  // mode = 0 -> init, no permissions set
+};
+
+struct shmid_ds {
+  struct ipc_perm shm_perm;
+  uint shm_segsz; // size of segment in bytes
+  int shm_nattch; // current attaches
+  int shm_cpid; // region's creator pid
+  int shm_lpid; // last attach / detach
+};
+
 struct shmRegion {
   uint key, size; // key = region key; size = number of pages, e.g. requested size = 4096 (PGSIZE), then size = 1
   int shmid;  // shmid
   int toBeDeleted;  // flag to check if the region is marked for deletion or not. 1 = marked for deletion, 0 = not marked (default)
-  void *physicalAddr[SHAREDREGIONS];  // store V2P of pages
+  void *physicalAddr[64];  // store V2P of pages
   struct shmid_ds buffer; // kernel shmid_ds data structure associated with a region
 };
 
 // shared memory table
 struct shmTable {
-  // lock for table
   struct spinlock lock;
-  // total shared memory regions
-  struct shmRegion allRegions[SHAREDREGIONS];
+  struct shmRegion allRegions[64]; // total shared memory regions
 } shmTable;
 
 
-/*
-  Creates a shared memory region with given key,
-  and size depending upon flag provided
-*/
+
 int
-shmget(uint key, uint size, int shmflag) {
-  // as Xv6 has only single user, else lower 9 bits would be considered
+get_sharedmem(uint key, uint size, int shmflag) {
   int lowerBits = shmflag & 7, permission = -1;
 
   acquire(&shmTable.lock);
-  
-  // separate correct permissions and shmflag
-  if(lowerBits == (int)READ_SHM) {
-    permission = READ_SHM;
-    shmflag ^= READ_SHM;
+  if(lowerBits == (int)04) {
+    permission = 04;
+    shmflag ^= 04;
   }
-  else if(lowerBits == (int)RW_SHM) {
-    permission = RW_SHM;
-    shmflag ^= RW_SHM;
+  else if(lowerBits == (int)06) {
+    permission = 06;
+    shmflag ^= 06;
   } else {
     if(!((shmflag == 0) && (key != IPC_PRIVATE))) {
       release(&shmTable.lock);
       return -1;
     }
   }
-  // check for requested size
   if(size <= 0) {
     release(&shmTable.lock);
     return -1;
   }
-  // calculate no of requested pages, from entered size
   int noOfPages = (size / PGSIZE) + 1;
-  // check if no of pages is more than decided limit
-  if(noOfPages > SHAREDREGIONS) {
+  if(noOfPages > 64) {
     release(&shmTable.lock);
     return -1;
   }
   int index = -1;
-  // check if key already exists
-  for(int i = 0; i < SHAREDREGIONS; i++) {
+  for(int i = 0; i < 64; i++) {
     if(shmTable.allRegions[i].key == key) {
-      // if wrong size is requested with existing region
       if(shmTable.allRegions[i].size != noOfPages) {
         release(&shmTable.lock);
         return -1;
       }
-      // IPC_CREAT | IPC_EXCL, for region that exists
       if(shmflag == (IPC_CREAT | IPC_EXCL)) {
         release(&shmTable.lock);
         return -1;
       }
-      // get region permissions
       int checkPerm = shmTable.allRegions[i].buffer.shm_perm.mode;
-      if(checkPerm == READ_SHM || checkPerm == RW_SHM) {
-        // condition for IPC_PRIVATE, with existing region
+      if(checkPerm == 04 || checkPerm == 06) {
         if((shmflag == 0) && (key != IPC_PRIVATE)) {
           release(&shmTable.lock);
           return shmTable.allRegions[i].shmid;
@@ -477,86 +475,69 @@ shmget(uint key, uint size, int shmflag) {
       return -1;
     }
   }
-  // check for first valid shared memory region, that can be allocated
-  for(int i = 0; i < SHAREDREGIONS; i++) {
+  for(int i = 0; i < 64; i++) {
     if(shmTable.allRegions[i].key == -1) {
       index = i;
       break;
     }
   }
-  // memory regions are exhausted
   if(index == -1) {
     release(&shmTable.lock);
     return -1;
   }
   if((key == IPC_PRIVATE) || (shmflag == IPC_CREAT) || (shmflag == (IPC_CREAT | IPC_EXCL))) {
-    // try to allocate requested size, rounded to page size
     for(int i = 0; i < noOfPages; i++) {
       char *newPage = kalloc();
       if(newPage == 0){
-        cprintf("shmget: failed to allocate a page (out of memory)\n");
+        cprintf("get_sharedmem: failed to allocate a page (out of memory)\n");
         release(&shmTable.lock);
         return -1;
       }
-      // zero out
       memset(newPage, 0, PGSIZE);
       shmTable.allRegions[index].physicalAddr[i] = (void *)V2P(newPage);
     }
-    // mark rest of the fields in structure
     shmTable.allRegions[index].size = noOfPages;
     shmTable.allRegions[index].key = key;
 
-    // store data for shmid_ds data structure
     shmTable.allRegions[index].buffer.shm_segsz = size;
     shmTable.allRegions[index].buffer.shm_perm.__key = key;
     shmTable.allRegions[index].buffer.shm_perm.mode = permission;
 
-    // store creator pid
     shmTable.allRegions[index].buffer.shm_cpid = myproc()->pid;
     
-    // store shmid in not yet shared region
     shmTable.allRegions[index].shmid = index;
 
     release(&shmTable.lock);
-    return index; // valid shmid
+    return index;
   } else {
     release(&shmTable.lock);
     return -1;
   }  
 }
 
-// finds the least starting address of a segment greater than curr_va which is attached 
-// to the virtual address space of the current process. Returns the index from the pages  
-// array corresponding to this address if found; -1 otherwise
 int 
 getLeastvaidx(void* curr_va, struct proc *process) {
   
-  //maximum virtual address available in range
   void* leastva = (void*)(KERNBASE - 1);
 
   int idx = -1;
-  for(int i = 0; i < SHAREDREGIONS; i++) {
+  for(int i = 0; i < 64; i++) {
     if(process->pages[i].key != -1 && (uint)process->pages[i].virtualAddr >= (uint)curr_va && (uint)leastva >= (uint)process->pages[i].virtualAddr) {  
-      // store address if greater than curr_va and smaller than the existing least_va.
       leastva = process->pages[i].virtualAddr;
-
       idx = i;
     }
   }  
   return idx;
 }
 
-// detaches the shared memory segment starting at shmaddr from virtual address space of the process
-// returns 0 if successful and -1 in case of a failure
 int 
-shmdt(void* shmaddr) {
+close_sharedmem(void* shmaddr) {
   acquire(&shmTable.lock);
   struct proc *process = myproc();
   void* va = (void*)0;
   uint size;
   int index,shmid;
-  for(int i = 0; i < SHAREDREGIONS; i++) {
-    // find the index from pages array which is attached at the provided shmaddr
+  for(int i = 0; i < 64; i++) {
     if(process->pages[i].key != -1 && process->pages[i].virtualAddr == shmaddr) {
         va =  process->pages[i].virtualAddr;
         index = i;
@@ -579,11 +560,9 @@ shmdt(void* shmaddr) {
     process->pages[index].size =  0;
     process->pages[index].virtualAddr = (void*)0;
     if(shmTable.allRegions[shmid].buffer.shm_nattch > 0) {
-      // decrement attaches
       shmTable.allRegions[shmid].buffer.shm_nattch -= 1;
     } 
     if(shmTable.allRegions[shmid].buffer.shm_nattch == 0 && shmTable.allRegions[shmid].toBeDeleted == 1) {
-      // remove the segments
       for(int i = 0; i < shmTable.allRegions[index].size; i++) {
         char *addr = (char *)P2V(shmTable.allRegions[index].physicalAddr[i]);
         kfree(addr);
@@ -609,10 +588,8 @@ shmdt(void* shmaddr) {
   
 }
 
-// attaches shared memory segment identified by shmid to the virtual address shmaddr 
-// if provided; otherwise attach at the first fitting address 
 void*
-shmat(int shmid, void* shmaddr, int shmflag) {
+open_sharedmem(int shmid, void* shmaddr, int shmflag) {
   if(shmid < 0 || shmid > 64) {
     return (void*)-1;
   }
@@ -623,7 +600,6 @@ shmat(int shmid, void* shmaddr, int shmflag) {
   struct proc *process = myproc();
   index = shmTable.allRegions[shmid].shmid;
   if(index == -1) {
-    // shmid not found
     release(&shmTable.lock);
     return (void*)-1;
   }
@@ -632,25 +608,20 @@ shmat(int shmid, void* shmaddr, int shmflag) {
       release(&shmTable.lock);
       return (void*)-1;
     }
-    // round down to nearest multiple of SHMLBA
-    uint rounded = ((uint)shmaddr & ~(SHMLBA-1));  
+    uint rounded = ((uint)shmaddr & ~((1 * PGSIZE)-1));  
 
-    if(shmflag & SHM_RND) {
+    if(shmflag & 020000) {
       if(!rounded) {
         release(&shmTable.lock);
         return (void*)-1;
       }
       va = (void*)rounded;
-    } else {
-
-      // page aligned address
-      if(rounded == (uint)shmaddr) {  
+    } else if(rounded == (uint)shmaddr) {
         va = shmaddr;    
-      }
     }
       
   } else {    
-    for(int i = 0; i < SHAREDREGIONS; i++) {
+    for(int i = 0; i < 64; i++) {
       idx = getLeastvaidx(va,process);
       if(idx != -1) {
         least_va = process->pages[idx].virtualAddr;
@@ -668,20 +639,19 @@ shmat(int shmid, void* shmaddr, int shmflag) {
     return (void*)-1;
   }
   idx = -1;
-  for(int i = 0; i < SHAREDREGIONS; i++) {
+  for(int i = 0; i < 64; i++) {
     if(process->pages[i].key != -1 && (uint)process->pages[i].virtualAddr + process->pages[i].size*PGSIZE > (uint)va && (uint)va >= (uint)process->pages[i].virtualAddr)  {
       idx = i;
       break;
     }
   }
   if(idx != -1) {
-    if(shmflag & SHM_REMAP) {
+    if(shmflag & 040000) {
       segment = (uint)process->pages[idx].virtualAddr;
-      // repeat till all conflicting mappings are removed
       while(segment < (uint)va + shmTable.allRegions[index].size*PGSIZE) { 
         size = process->pages[idx].size;
         release(&shmTable.lock);
-        if(shmdt((void*)segment) == -1) {
+        if(close_sharedmem((void*)segment) == -1) {
           return (void*)-1;
         }
         acquire(&shmTable.lock);        
@@ -696,13 +666,12 @@ shmat(int shmid, void* shmaddr, int shmflag) {
     }
 
   }
-  if((shmflag & SHM_RDONLY) || (shmTable.allRegions[index].buffer.shm_perm.mode == READ_SHM)){
+  if((shmflag & 010000) || (shmTable.allRegions[index].buffer.shm_perm.mode == 04)){
     permflag = PTE_U;
   }
-  else if (shmTable.allRegions[index].buffer.shm_perm.mode == RW_SHM) {
+  else if (shmTable.allRegions[index].buffer.shm_perm.mode == 06) {
     permflag = PTE_W | PTE_U;
   } else {
-    //permission mismatch between get and attach
     release(&shmTable.lock);
     return (void*)-1;
   }
@@ -714,7 +683,7 @@ shmat(int shmid, void* shmaddr, int shmflag) {
     }
 	}
   idx = -1;
-  for(int i = 0; i < SHAREDREGIONS; i++) {
+  for(int i = 0; i < 64; i++) {
     if(process->pages[i].key == -1) {
       idx = i;
       break;
@@ -736,14 +705,8 @@ shmat(int shmid, void* shmaddr, int shmflag) {
   return va;
 }
 
-/*
-  Controls the shared memory regions corresponding to shmid,
-  depending upon the cmd (command) provided and buf parameter,
-  which is user equivalent of shmid_ds data structure
-*/
 int
-shmctl(int shmid, int cmd, void *buf) {
-  // check shmid bound
+control_sharedmem(int shmid, int cmd, void *buf) {
   if(shmid < 0 || shmid > 64){
     return -1;
   }
@@ -754,18 +717,15 @@ shmctl(int shmid, int cmd, void *buf) {
 
   int index = -1;
   index = shmTable.allRegions[shmid].shmid;
-  // check for valid shmid
   if(index == -1) {
     release(&shmTable.lock);
     return -1;
   } else {
-    // get permissions on region with provided shmid
     int checkPerm = shmTable.allRegions[index].buffer.shm_perm.mode;
     switch(cmd) {
-      // handle IPC_SET flag, to set values from user data structure to kernel data structure
       case IPC_SET:
         if(buffer) {
-          if((buffer->shm_perm.mode == READ_SHM) || (buffer->shm_perm.mode == RW_SHM)) {
+          if((buffer->shm_perm.mode == 04) || (buffer->shm_perm.mode == 06)) {
             shmTable.allRegions[index].buffer.shm_perm.mode = buffer->shm_perm.mode;
             release(&shmTable.lock);
             return 0;
@@ -778,14 +738,9 @@ shmctl(int shmid, int cmd, void *buf) {
           return -1;
         }
         break;
-      /* 
-        handle SHM_STAT and IPC_STAT flag,
-        both will have same check on xv6 as there is only a single user
-      */
-      case SHM_STAT:
+      case 13:
       case IPC_STAT:
-        // check valid permissions
-        if(buffer && (checkPerm == READ_SHM || checkPerm == RW_SHM)) {
+        if(buffer && (checkPerm == 04 || checkPerm == 06)) {
           buffer->shm_nattch = shmTable.allRegions[index].buffer.shm_nattch;
           buffer->shm_segsz = shmTable.allRegions[index].buffer.shm_segsz;
           buffer->shm_perm.__key = shmTable.allRegions[index].buffer.shm_perm.__key;
@@ -799,7 +754,6 @@ shmctl(int shmid, int cmd, void *buf) {
           return -1;
         }
         break;
-      // handle IPC_RMID flag, to remove shared memory region associated with give shmid
       case IPC_RMID:
         if(shmTable.allRegions[index].buffer.shm_nattch == 0) {
           for(int i = 0; i < shmTable.allRegions[index].size; i++) {
@@ -807,7 +761,6 @@ shmctl(int shmid, int cmd, void *buf) {
             kfree(addr);
             shmTable.allRegions[index].physicalAddr[i] = (void *)0;
           }
-          // reinitialize other values to default values
           shmTable.allRegions[index].size = 0;
           shmTable.allRegions[index].key = shmTable.allRegions[index].shmid = -1;
           shmTable.allRegions[index].toBeDeleted = 0;
@@ -818,13 +771,11 @@ shmctl(int shmid, int cmd, void *buf) {
           shmTable.allRegions[index].buffer.shm_cpid = -1;
           shmTable.allRegions[index].buffer.shm_lpid = -1;
         } else {
-          // mark the segment to be destroyed
           shmTable.allRegions[index].toBeDeleted = 1;
         }
         release(&shmTable.lock);
         return 0;
         break;
-      // handle other cases
       default:
         release(&shmTable.lock);
         return -1;
@@ -833,14 +784,11 @@ shmctl(int shmid, int cmd, void *buf) {
   } 
 }
 
-// to initialize shared memory table
 void
 sharedMemoryInit(void) {
-  // initialize shmtable lock
   initlock(&shmTable.lock, "Shared Memory");
   acquire(&shmTable.lock);
-  // initialize all shmtable values
-  for(int i = 0; i < SHAREDREGIONS; i++) {
+  for(int i = 0; i < 64; i++) {
     shmTable.allRegions[i].key = shmTable.allRegions[i].shmid = -1;
     shmTable.allRegions[i].size = 0;
     shmTable.allRegions[i].toBeDeleted = 0;
@@ -850,14 +798,13 @@ sharedMemoryInit(void) {
     shmTable.allRegions[i].buffer.shm_perm.mode = 0;
     shmTable.allRegions[i].buffer.shm_cpid = -1;
     shmTable.allRegions[i].buffer.shm_lpid = -1;
-    for(int j = 0; j < SHAREDREGIONS; j++) {
+    for(int j = 0; j < 64; j++) {
       shmTable.allRegions[i].physicalAddr[j] = (void *)0;
     }
   }
   release(&shmTable.lock);
 }
 
-// to return shmid index from shmtable
 int
 getShmidIndex(int shmid) {
   if(shmid < 0 || shmid > 64) {
@@ -876,9 +823,8 @@ void mappagesWrapper(struct proc *process, int shmIndex, int index) {
   }
 }
 
-void shmdtWrapper(void *addr) {
-  // call shmdt
-  shmdt(addr);
+void close_sharedmemWrapper(void *addr) {
+  close_sharedmem(addr);
 }
 
 //PAGEBREAK!

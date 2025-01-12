@@ -25,10 +25,10 @@ int sleep(int);
 int uptime(void);
 
 // shared memory
-int shmget(uint, uint, int);
-int shmat(int, void*, int);
-int shmdt(void*);
-int shmctl(int, int, void*);
+int get_sharedmem(uint, uint, int);
+int open_sharedmem(int, void*, int);
+int close_sharedmem(void*);
+int control_sharedmem(int, int, void*);
 
 // ulib.c
 int stat(const char*, struct stat*);

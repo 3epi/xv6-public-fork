@@ -1,7 +1,6 @@
 #include "types.h"
 #include "stat.h"
 #include "user.h"
-#include "sharedmemory.h"
 #include "ipc.h"
 // Simple struct for shared factorial data
 struct shared_data {
@@ -19,18 +18,18 @@ int main(int argc, char *argv[]) {
     int num_processes = atoi(argv[1]);
     int final_n = atoi(argv[2]);
 
-    // Use IPC_CREAT so shmget doesn't fail
-    int shmid = shmget(1234, sizeof(struct shared_data), RW_SHM | IPC_CREAT);
+    // Use IPC_CREAT so get_sharedmem doesn't fail
+    int shmid = get_sharedmem(1234, sizeof(struct shared_data), 06 | IPC_CREAT);
     if(shmid < 0) {
-        printf(1, "shmget returned: %d\n", shmid);
-        printf(1, "shmget failed\n");
+        printf(1, "get_sharedmem returned: %d\n", shmid);
+        printf(1, "get_sharedmem failed\n");
         exit();
     }
 
     // Parent attaches to initialize shared memory
-    struct shared_data *pData = (struct shared_data*)shmat(shmid, 0, 0);
+    struct shared_data *pData = (struct shared_data*)open_sharedmem(shmid, 0, 0);
     if(pData == (void*)-1) {
-        printf(1, "Parent shmat failed\n");
+        printf(1, "Parent open_sharedmem failed\n");
         exit();
     }
 
@@ -52,9 +51,9 @@ int main(int argc, char *argv[]) {
     // Child code
     if(pid == 0){
         // Each child re-attaches the shared memory
-        struct shared_data *cData = (struct shared_data*)shmat(shmid, 0, 0);
+        struct shared_data *cData = (struct shared_data*)open_sharedmem(shmid, 0, 0);
         if(cData == (void*)-1) {
-            printf(1, "Child %d shmat failed\n", process_id);
+            printf(1, "Child %d open_sharedmem failed\n", process_id);
             exit();
         }
         printf(1, "Child %d started\n", process_id);
@@ -68,7 +67,7 @@ int main(int argc, char *argv[]) {
             if(cData->current_n >= final_n){
                 cData->sync_flag = (process_id % num_processes)+1;
                 // Child detaches before exit
-                shmdt(cData);
+                close_sharedmem(cData);
                 exit();
             }
 
@@ -91,7 +90,7 @@ int main(int argc, char *argv[]) {
         }
         printf(1, "Final: factorial(%d)=%d\n", final_n, pData->factorial);
         // Parent detaches
-        shmdt(pData);
+        close_sharedmem(pData);
     }
 
     exit();

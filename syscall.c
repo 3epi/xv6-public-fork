@@ -104,10 +104,10 @@ extern int sys_wait(void);
 extern int sys_write(void);
 extern int sys_uptime(void);
 // Declarations for shared memory
-extern int sys_shmget(void);
-extern int sys_shmat(void);
-extern int sys_shmdt(void);
-extern int sys_shmctl(void);
+extern int sys_get_sharedmem(void);
+extern int sys_open_sharedmem(void);
+extern int sys_close_sharedmem(void);
+extern int sys_control_sharedmem(void);
 
 static int (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -131,10 +131,10 @@ static int (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
-[SYS_shmget]  sys_shmget,
-[SYS_shmat]  sys_shmat,
-[SYS_shmdt]  sys_shmdt,
-[SYS_shmctl] sys_shmctl,
+[SYS_get_sharedmem]  sys_get_sharedmem,
+[SYS_open_sharedmem]  sys_open_sharedmem,
+[SYS_close_sharedmem]  sys_close_sharedmem,
+[SYS_control_sharedmem] sys_control_sharedmem,
 };
 
 void

@@ -97,9 +97,9 @@ exec(char *path, char **argv)
   /*
     Detach shared region segments
   */
-  for(int i = 0; i < SHAREDREGIONS; i++) {
+  for(int i = 0; i < 64; i++) {
     if(curproc->pages[i].shmid != -1 && curproc->pages[i].key != -1) {
-      shmdtWrapper(curproc->pages[i].virtualAddr);
+      close_sharedmemWrapper(curproc->pages[i].virtualAddr);
     }
   }
 
